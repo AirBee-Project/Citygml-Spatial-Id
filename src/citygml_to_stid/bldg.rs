@@ -3,6 +3,7 @@ use kasane_logic::function::triangle::triangle;
 use kasane_logic::id::{SpaceTimeId, coordinates::Point};
 use regex::bytes::Regex;
 use std::collections::{HashMap, HashSet};
+use rayon::prelude::*;
 
 use quick_xml::{events::Event, reader::Reader};
 use serde_json::{Value, json};
@@ -10,6 +11,7 @@ use std::error::Error;
 use std::fs::{self, create_dir_all, File, OpenOptions};
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+
 
 #[derive(Debug)]
 pub struct BuildingInfo {
@@ -19,23 +21,43 @@ pub struct BuildingInfo {
 }
 
 //first って言ってるがbreakを外したら何周もするし、それがメインなので名前を変えるべきかも。
-pub fn first_building_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
+pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
     let base_dir = Path::new("CityData")
-        // .join("10201_maebashi-shi_city_2023_citygml_2_op")
-        .join("13109_shinagawa-ku_city_2024_citygml_1_op")
+        .join("10201_maebashi-shi_city_2023_citygml_2_op")
+        // .join("13109_shinagawa-ku_city_2024_citygml_1_op")
         .join("udx")
         .join("bldg");
 
-    let mut file_count = 0;
-    for entry in fs::read_dir(&base_dir)? {
+    // let mut file_count = 0;
+    // for entry in fs::read_dir(&base_dir)? {
+
+    let mut count = 0;
+
+    let files: Vec<PathBuf> = fs::read_dir(&base_dir)?
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            if path.extension().is_some_and(|ext| ext == "gml") {
+                count += 1;
+                if count >= 3 {
+                    None
+                } else {
+                    Some(path)
+                }
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    files.par_iter().for_each(|file_path| {
         
-        let entry = entry?;
-        let file_path = entry.path();
+        // let entry = entry_result;
+        // let file_path = entry.path();
         // println!("{:?}", file_path);
         if file_path.extension().is_some_and(|ext| ext == "gml") {
-            file_count += 1;
-            let file = File::open(&file_path)?;
-            let mut reader = Reader::from_reader(BufReader::new(file));
+            // file_count += 1;
+            let file = File::open(&file_path);
+            let mut reader = Reader::from_reader(BufReader::new(file.unwrap()));
             reader.config_mut().trim_text(true);
 
             let mut buf = Vec::<u8>::new();
@@ -54,7 +76,7 @@ pub fn first_building_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
             let mut current_tag: Option<Vec<u8>> = None;
 
             loop {
-                let ev = reader.read_event_into(&mut buf)?;
+                let ev = reader.read_event_into(&mut buf).unwrap();
                 match ev {
                     Event::Start(e) => {
                         let tag_name: Vec<u8> = e.name().as_ref().to_vec();
@@ -66,7 +88,7 @@ pub fn first_building_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                             in_building = true;
                             for a in &attrs {
                                 if a.key.as_ref() == b"gml:id" {
-                                    buildinginfo.building_id = a.unescape_value()?.to_string();
+                                    buildinginfo.building_id = a.unescape_value().unwrap().to_string();
                                 }
                             }
                         }
@@ -94,11 +116,11 @@ pub fn first_building_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                     }
                     Event::Text(t) => {
                         if in_building {
-                            let text_val = t.decode()?.into_owned();
-
+                            let text_val = t.decode().unwrap().into_owned();
+                            // println!("{:?}",text_val);
                             if in_uro {
                                 if let Some(abs_path) = &current_code_space_path {
-                                    let code_map = parse_code_space(abs_path.clone())?;
+                                    let code_map = parse_code_space(abs_path.clone()).unwrap_or_default();
                                     let name = code_map.get(&text_val).unwrap_or(&text_val);
                                     if let Some(tag_bytes) = &current_tag {
                                         if let Ok(tag_str) = std::str::from_utf8(tag_bytes) {
@@ -110,10 +132,10 @@ pub fn first_building_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                                 }
                             } else if let Some(tag_name) = &current_tag {
                                 if tag_name.as_slice() == b"gml:posList" {
-                                    let points = parse_points(&text_val)?;
+                                    let points = parse_points(&text_val).unwrap();
                                     buildinginfo
                                         .stid_set
-                                        .extend(citygml_polygon_to_ids(22, &points));
+                                        .extend(citygml_polygon_to_ids(25, &points));
                                 }
                             }
                         }
@@ -134,14 +156,15 @@ pub fn first_building_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                         }
 
                         if in_building && tag_name == b"bldg:Building" {
-                            save_building_info_json(building_count, &buildinginfo, format!("{}_stid", file_count))?;
+                            println!("{}", file_path.display());
+                            save_building_info_json(building_count, &buildinginfo, format!("{}_stid_parallel", file_path.display()));
                             building_count += 1;
                             in_building = false;
                             in_uro = false; //現在、一周しかしてないのでflagの意味がないが、複数買いまわすことになった時に使う(はず)
                             
                             
                             
-                            // break; // 最初の Building だけ処理
+                            break; // 最初の Building だけ処理
                         }
                     }
                     Event::Eof => break,
@@ -151,11 +174,13 @@ pub fn first_building_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
             }
         }
         
-        if file_count == 1 {
-            break;
-        }
+        // if file_count == 1 {
+        //     break;
+        // }
         
-    }
+        });
+
+    // }
 
     // let file_path: PathBuf = fs::read_dir(&base_dir)?
     //     .filter_map(|entry| {
@@ -179,18 +204,33 @@ pub fn first_building_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
     }))
 }
 
-fn citygml_polygon_to_ids(z: u8, vertices: &[Point]) -> HashSet<SpaceTimeId> {
+pub fn citygml_polygon_to_ids(z: u8, vertices: &[Point]) -> HashSet<SpaceTimeId> {
     let mut all_ids = HashSet::new();
+    for point in vertices {
+        if point.altitude == 0. {
+            return all_ids
+        }
+    }
+
     if vertices.len() < 3 {
         return all_ids;
     }
-    let a = vertices[0];
+    let a = z_minus_point(&vertices[0]);
     for i in 1..vertices.len() - 1 {
-        let b = vertices[i];
-        let c = vertices[i + 1];
+        let b = z_minus_point(&vertices[i]);
+        let c = z_minus_point(&vertices[i + 1]);
         all_ids.extend(triangle(z, a, b, c));
     }
     all_ids
+}
+
+fn z_minus_point(point:&Point) -> Point {
+    let new_altitude = point.altitude - 77.0;
+    Point{
+        latitude:point.latitude,
+        longitude:point.longitude,
+        altitude:new_altitude
+    }
 }
 
 pub fn parse_points(input: &str) -> Result<Vec<Point>, Box<dyn std::error::Error>> {

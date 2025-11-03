@@ -18,6 +18,8 @@ pub struct BuildingInfo {
     pub attribute_info_map: HashMap<String, String>,
 }
 
+type CodeSpaceCache = HashMap<PathBuf, HashMap<String, String>>;
+
 //first って言ってるがbreakを外したら何周もするし、それがメインなので名前を変えるべきかも。
 pub fn first_building_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
     let base_dir = Path::new("CityData")
@@ -27,6 +29,10 @@ pub fn first_building_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
         .join("bldg");
 
     let mut file_count = 0;
+    
+    let mut code_space_cache: CodeSpaceCache = HashMap::new();
+
+
     for entry in fs::read_dir(&base_dir)? {
         
         let entry = entry?;
@@ -98,7 +104,7 @@ pub fn first_building_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                             // println!("{:?}",text_val);
                             if in_uro {
                                 if let Some(abs_path) = &current_code_space_path {
-                                    let code_map = parse_code_space(abs_path.clone())?;
+                                    let code_map = get_code_map(&mut code_space_cache, abs_path)?;
                                     let name = code_map.get(&text_val).unwrap_or(&text_val);
                                     if let Some(tag_bytes) = &current_tag {
                                         if let Ok(tag_str) = std::str::from_utf8(tag_bytes) {
@@ -261,4 +267,16 @@ fn save_building_info_json(
         .open(file_path)?;
     f.write_all(existing.to_string().as_bytes())?;
     Ok(())
+}
+
+fn get_code_map<'a>(
+    cache: &'a mut CodeSpaceCache,
+    path: &'a PathBuf,
+) -> Result<&'a HashMap<String, String>, Box<dyn std::error::Error>> {
+    if !cache.contains_key(path) {
+        // 初回だけ読み込む
+        let map = parse_code_space(path.clone())?;
+        cache.insert(path.clone(), map);
+    }
+    Ok(cache.get(path).unwrap())
 }

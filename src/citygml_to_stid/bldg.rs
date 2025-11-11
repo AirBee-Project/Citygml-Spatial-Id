@@ -1,26 +1,16 @@
-use crate::code_space_parser::parse_code_space;
-use kasane_logic::function::triangle::triangle;
-use kasane_logic::id::{SpaceTimeId, coordinates::Point};
+use crate::citygml_to_stid::models::types::CodeSpaceCache;
+use crate::citygml_to_stid::utils::{cache, code_space_parser, file, geometory, xml_parser};
+use crate::citygml_to_stid::models::bldg::BuildingInfo;
 use regex::bytes::Regex;
 use std::collections::{HashMap, HashSet};
 use rayon::prelude::*;
 
 use quick_xml::{events::Event, reader::Reader};
-use serde_json::{Value, json};
 use std::error::Error;
-use std::fs::{self, create_dir_all, File, OpenOptions};
-use std::io::{BufReader, Read, Write};
+use std::fs::{self, File};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
-
-#[derive(Debug)]
-pub struct BuildingInfo {
-    pub building_id: String,
-    pub stid_set: HashSet<SpaceTimeId>,
-    pub attribute_info_map: HashMap<String, String>,
-}
-
-//first って言ってるがbreakを外したら何周もするし、それがメインなので名前を変えるべきかも。
 pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
     let base_dir = Path::new("CityData")
         .join("10201_maebashi-shi_city_2023_citygml_2_op")
@@ -32,25 +22,19 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
     // for entry in fs::read_dir(&base_dir)? {
 
     let mut count = 0;
+    let mut code_space_cache: CodeSpaceCache = HashMap::new();
+
 
     let files: Vec<PathBuf> = fs::read_dir(&base_dir)?
         .filter_map(|entry| {
-            let path = entry.ok()?.path();
-            if path.extension().is_some_and(|ext| ext == "gml") {
-                count += 1;
-                if count >= 3 {
-                    None
-                } else {
-                    Some(path)
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
+        let path = entry.ok()?.path();
+        (path.extension().is_some_and(|ext| ext == "gml")).then_some(path)
+    })
+    .take(1) // 最初の1個だけ処理
+    .collect();
 
-    files.par_iter().for_each(|file_path| {
-        
+    // files.par_iter().for_each(|file_path| {
+    for file_path in files {
         // let entry = entry_result;
         // let file_path = entry.path();
         // println!("{:?}", file_path);
@@ -120,7 +104,7 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                             // println!("{:?}",text_val);
                             if in_uro {
                                 if let Some(abs_path) = &current_code_space_path {
-                                    let code_map = parse_code_space(abs_path.clone()).unwrap_or_default();
+                                    let code_map = cache::get_code_map(&mut code_space_cache, abs_path)?;
                                     let name = code_map.get(&text_val).unwrap_or(&text_val);
                                     if let Some(tag_bytes) = &current_tag {
                                         if let Ok(tag_str) = std::str::from_utf8(tag_bytes) {
@@ -129,13 +113,22 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                                                 .insert(tag_str.to_string(), name.clone());
                                         }
                                     }
+                                    // let code_map = code_space_parser::parse_code_space(abs_path.clone()).unwrap_or_default();
+                                    // let name = code_map.get(&text_val).unwrap_or(&text_val);
+                                    // if let Some(tag_bytes) = &current_tag {
+                                    //     if let Ok(tag_str) = std::str::from_utf8(tag_bytes) {
+                                    //         buildinginfo
+                                    //             .attribute_info_map
+                                    //             .insert(tag_str.to_string(), name.clone());
+                                    //     }
+                                    // }
                                 }
                             } else if let Some(tag_name) = &current_tag {
                                 if tag_name.as_slice() == b"gml:posList" {
-                                    let points = parse_points(&text_val).unwrap();
+                                    let points = xml_parser::parse_points(&text_val).unwrap();
                                     buildinginfo
                                         .stid_set
-                                        .extend(citygml_polygon_to_ids(25, &points));
+                                        .extend(geometory::citygml_polygon_to_ids(20, &points));
                                 }
                             }
                         }
@@ -156,15 +149,15 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                         }
 
                         if in_building && tag_name == b"bldg:Building" {
-                            println!("{}", file_path.display());
-                            save_building_info_json(building_count, &buildinginfo, format!("{}_stid_parallel", file_path.display()));
+                            // println!("file path :  {}", file_path.display());
+                            // println!("building info : {:#?}",buildinginfo );
+                            println!("building count : {}", building_count);
+                            file::save_building_info_json(building_count, &buildinginfo, format!("{}_stid", file_path.display()));
                             building_count += 1;
                             in_building = false;
-                            in_uro = false; //現在、一周しかしてないのでflagの意味がないが、複数買いまわすことになった時に使う(はず)
+                            in_uro = false; //一周しかしないと意味がないが、複数回まわすことになった時に使う
                             
-                            
-                            
-                            break; // 最初の Building だけ処理
+                            // break; // 最初の Building だけ処理
                         }
                     }
                     Event::Eof => break,
@@ -178,7 +171,8 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
         //     break;
         // }
         
-        });
+    }
+        // });
 
     // }
 
@@ -204,86 +198,4 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
     }))
 }
 
-pub fn citygml_polygon_to_ids(z: u8, vertices: &[Point]) -> HashSet<SpaceTimeId> {
-    let mut all_ids = HashSet::new();
-    for point in vertices {
-        if point.altitude == 0. {
-            return all_ids
-        }
-    }
 
-    if vertices.len() < 3 {
-        return all_ids;
-    }
-    let a = z_minus_point(&vertices[0]);
-    for i in 1..vertices.len() - 1 {
-        let b = z_minus_point(&vertices[i]);
-        let c = z_minus_point(&vertices[i + 1]);
-        all_ids.extend(triangle(z, a, b, c));
-    }
-    all_ids
-}
-
-fn z_minus_point(point:&Point) -> Point {
-    let new_altitude = point.altitude - 77.0;
-    Point{
-        latitude:point.latitude,
-        longitude:point.longitude,
-        altitude:new_altitude
-    }
-}
-
-pub fn parse_points(input: &str) -> Result<Vec<Point>, Box<dyn std::error::Error>> {
-    let nums: Vec<f64> = input
-        .split_whitespace()
-        .map(str::parse::<f64>)
-        .collect::<Result<_, _>>()?;
-    if nums.len() % 3 != 0 {
-        return Err(format!("入力数が3の倍数ではありません: {}", nums.len()).into());
-    }
-    Ok(nums
-        .chunks(3)
-        .map(|c| Point {
-            latitude: c[0],
-            longitude: c[1],
-            altitude: c[2],
-        })
-        .collect())
-}
-
-fn save_building_info_json(
-    count: i32,
-    building_info: &BuildingInfo,
-    export_name: String,
-) -> Result<(), Box<dyn Error>> {
-    let dir_path = Path::new("stid_json");
-    create_dir_all(dir_path)?;
-
-    let file_path = dir_path.join(format!("{}.json", export_name));
-
-    let mut existing: Value = if let Ok(mut f) = File::open(&file_path) {
-        let mut buf = String::new();
-        f.read_to_string(&mut buf)?;
-        if buf.trim().is_empty() {
-            json!({})
-        } else {
-            serde_json::from_str(&buf)?
-        }
-    } else {
-        json!({})
-    };
-
-    existing[&count.to_string()] = json!({
-        "id": building_info.building_id,
-        "stid_set": building_info.stid_set.iter().map(|stid| stid.to_string()).collect::<Vec<String>>(),
-        "attributes": building_info.attribute_info_map
-    });
-
-    let mut f = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(file_path)?;
-    f.write_all(existing.to_string().as_bytes())?;
-    Ok(())
-}

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-kasane-logic = "0.0.3"
+kasane-logic = "0.1.0"
 quick-xml = "0.38.3"
 rayon = "1.11.0"
 regex = "1.11.2"

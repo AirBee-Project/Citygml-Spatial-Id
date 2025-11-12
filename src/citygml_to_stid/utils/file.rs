@@ -16,9 +16,18 @@ pub fn save_building_info_json(
     // println!("safe_name : {}", safe_name);
     let dir_path = Path::new("stid_json");
     create_dir_all(dir_path)?;
-    
+
+    //IDデータのみを拾う
+
+    let mut file = File::create("voxels.txt")?;
+
+    // 各 voxel を改行付きで書き出す
+    for voxel in &building_info.stid_set {
+        writeln!(file, "{},", voxel)?;
+    }
+
     let file_path = dir_path.join(format!("{}.json", safe_name));
-    
+
     let mut existing: Value = if let Ok(mut f) = File::open(&file_path) {
         let mut buf = String::new();
         f.read_to_string(&mut buf)?;

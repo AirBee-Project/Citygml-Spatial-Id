@@ -137,7 +137,7 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                                     //     .stid_set
                                     //     .extend(geometory::citygml_polygon_to_ids(20, &points));
                                     let start_geo = Instant::now();
-                                    let ids = geometory::citygml_polygon_to_ids(27, &points);
+                                    let ids = geometory::citygml_polygon_to_ids(25, &points);
                                     println!("  -> geometry変換時間: {:.3?}", start_geo.elapsed());
                                     buildinginfo.stid_set.extend(ids);
                                     poslist_total += start.elapsed();
@@ -172,8 +172,6 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                             building_count += 1;
                             in_building = false;
                             in_uro = false; //一周しかしないと意味がないが、複数回まわすことになった時に使う
-
-                            break; // 最初の Building だけ処理
                         }
                     }
                     Event::Eof => break,

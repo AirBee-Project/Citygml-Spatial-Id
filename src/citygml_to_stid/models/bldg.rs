@@ -1,7 +1,7 @@
-use kasane_logic::id::{SpaceTimeId};
 use std::collections::{HashMap, HashSet};
 
-#[derive(Debug)]
+use kasane_logic::space_time_id::SpaceTimeId;
+
 pub struct BuildingInfo {
     pub building_id: String,
     pub stid_set: HashSet<SpaceTimeId>,

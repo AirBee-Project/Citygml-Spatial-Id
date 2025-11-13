@@ -7,7 +7,8 @@ pub mod city_gml_to_stid_test;
 
 use crate::citygml_to_stid::bldg::bldg_info;
 fn main() {
-    let _ = bldg_info();
+    //引数に並列で動かすスレッド数を指定
+    let _ = bldg_info(2);
 
     // // Ok(())
 

@@ -7,7 +7,7 @@ pub mod city_gml_to_stid_test;
 
 use crate::citygml_to_stid::bldg::bldg_info;
 fn main() {
-    if let Ok(Some(info)) = bldg_info() { println!("{:#?}", info) }
+    let _ = bldg_info();
 
     // // Ok(())
 

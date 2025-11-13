@@ -1,6 +1,6 @@
-use kasane_logic::id::coordinates::Point;
+use kasane_logic::point::Coordinate;
 
-pub fn parse_points(input: &str) -> Result<Vec<Point>, Box<dyn std::error::Error>> {
+pub fn parse_points(input: &str) -> Result<Vec<Coordinate>, Box<dyn std::error::Error>> {
     let nums: Vec<f64> = input
         .split_whitespace()
         .map(str::parse::<f64>)
@@ -10,7 +10,7 @@ pub fn parse_points(input: &str) -> Result<Vec<Point>, Box<dyn std::error::Error
     }
     Ok(nums
         .chunks(3)
-        .map(|c| Point {
+        .map(|c| Coordinate {
             latitude: c[0],
             longitude: c[1],
             altitude: c[2],

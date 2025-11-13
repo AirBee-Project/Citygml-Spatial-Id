@@ -24,8 +24,6 @@ pub fn bldg_info(num_of_parallel: usize) -> Result<Option<BuildingInfo>, Box<dyn
         .join("udx")
         .join("bldg");
 
-    let mut code_space_cache: CodeSpaceCache = HashMap::new();
-
     let files: Vec<PathBuf> = fs::read_dir(&base_dir)?
         .filter_map(|entry| {
             let path = entry.ok()?.path();

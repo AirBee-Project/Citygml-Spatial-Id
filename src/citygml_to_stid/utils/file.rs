@@ -8,6 +8,47 @@ use std::fs::{File, OpenOptions, create_dir_all};
 use std::io::{Read, Write};
 use std::path::Path;
 
+//まとめて保存する用
+pub fn save_building_infos_json(
+    building_infos: Vec<BldgStorage>,
+    export_name: String,
+) -> Result<(), Box<dyn Error>> {
+    let safe_name = export_name.replace('\\', "_").replace('/', "_");
+    let dir_path = Path::new("stid_json");
+    create_dir_all(dir_path)?;
+
+    let chunk_size = 50;
+    // ファイルが開けないほど重くなってしまうため、チャンクごとに分割
+    for (i, chunk) in building_infos.chunks(chunk_size).enumerate() {
+        let mut data = Value::Object(serde_json::Map::new());
+
+        for building_info in chunk {
+            data[building_info.count.to_string()] = json!({
+                "id": building_info.building_info.building_id,
+                "stid_set": building_info.building_info
+                    .stid_set
+                    .iter()
+                    .map(|stid| stid.to_string())
+                    .collect::<Vec<String>>(),
+                "attributes": building_info.building_info.attribute_info_map
+            });
+        }
+
+        // ファイル名にチャンク番号を付与
+        let file_path = dir_path.join(format!("{}_part{}.json", safe_name, i + 1));
+
+        let mut f = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(file_path)?;
+        f.write_all(serde_json::to_string_pretty(&data)?.as_bytes())?;
+    }
+
+    Ok(())
+}
+
+//単体保存用
 pub fn save_building_info_json(
     count: i32,
     building_info: &BuildingInfo,
@@ -54,45 +95,5 @@ pub fn save_building_info_json(
         .truncate(true)
         .open(file_path)?;
     f.write_all(existing.to_string().as_bytes())?;
-    Ok(())
-}
-
-pub fn save_building_infos_json(
-    building_infos: Vec<BldgStorage>,
-    export_name: String,
-) -> Result<(), Box<dyn Error>> {
-    let safe_name = export_name.replace('\\', "_").replace('/', "_");
-    let dir_path = Path::new("stid_json");
-    create_dir_all(dir_path)?;
-
-       let chunk_size = 50;
-// ファイルが開けないほど重くなってしまうため、チャンクごとに分割
-    for (i, chunk) in building_infos.chunks(chunk_size).enumerate() {
-        let mut data = Value::Object(serde_json::Map::new());
-
-        for building_info in chunk {
-            data[building_info.count.to_string()] = json!({
-                "id": building_info.building_info.building_id,
-                "stid_set": building_info.building_info
-                    .stid_set
-                    .iter()
-                    .map(|stid| stid.to_string())
-                    .collect::<Vec<String>>(),
-                "attributes": building_info.building_info.attribute_info_map
-            });
-        }
-
-        // ファイル名にチャンク番号を付与
-        let file_path = dir_path.join(format!("{}_part{}.json", safe_name, i + 1));
-
-        let mut f = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(file_path)?;
-        f.write_all(serde_json::to_string_pretty(&data)?.as_bytes())?;
-    }
-
-
     Ok(())
 }

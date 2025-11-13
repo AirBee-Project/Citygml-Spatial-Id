@@ -11,6 +11,11 @@ use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
+pub struct BldgStorage {
+    pub count: i32,
+    pub building_info: BuildingInfo,
+}
+
 pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
     let base_dir = Path::new("CityData")
         .join("10201_maebashi-shi_city_2023_citygml_2_op")
@@ -35,6 +40,7 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
 
     // files.par_iter().for_each(|file_path| {
     for file_path in files {
+        let mut storage:Vec<BldgStorage> = Vec::new();
         // let entry = entry_result;
         // let file_path = entry.path();
         // println!("{:?}", file_path);
@@ -152,7 +158,12 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                             // println!("file path :  {}", file_path.display());
                             // println!("building info : {:#?}",buildinginfo );
                             println!("building count : {}", building_count);
-                            file::save_building_info_json(building_count, &buildinginfo, format!("{}_stid", file_path.display()));
+                            //一つ一つ保存
+                            // file::save_building_info_json(building_count, &buildinginfo, format!("{}_stid", file_path.display()));
+                            storage.push(BldgStorage {
+                                count:building_count,
+                                building_info: buildinginfo.clone()
+                        });
                             building_count += 1;
                             in_building = false;
                             in_uro = false; //一周しかしないと意味がないが、複数回まわすことになった時に使う
@@ -171,6 +182,7 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
         //     break;
         // }
         
+        file::save_building_infos_json(storage, format!("{}_stid", file_path.display())).unwrap();
     }
         // });
 

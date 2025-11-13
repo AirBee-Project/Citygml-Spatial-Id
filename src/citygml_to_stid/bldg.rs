@@ -23,10 +23,7 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
         .join("udx")
         .join("bldg");
 
-    // let mut file_count = 0;
-    // for entry in fs::read_dir(&base_dir)? {
 
-    let mut count = 0;
     let mut code_space_cache: CodeSpaceCache = HashMap::new();
 
     let files: Vec<PathBuf> = fs::read_dir(&base_dir)?
@@ -37,12 +34,8 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
         .take(1) // 最初の1個だけ処理
         .collect();
 
-    // files.par_iter().for_each(|file_path| {
     for file_path in files {
         let mut storage:Vec<BldgStorage> = Vec::new();
-        // let entry = entry_result;
-        // let file_path = entry.path();
-        // println!("{:?}", file_path);
         if file_path.extension().is_some_and(|ext| ext == "gml") {
             // file_count += 1;
             let file = File::open(&file_path);
@@ -124,24 +117,13 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                                                 .insert(tag_str.to_string(), name.clone());
                                         }
                                     }
-                                    // let code_map = code_space_parser::parse_code_space(abs_path.clone()).unwrap_or_default();
-                                    // let name = code_map.get(&text_val).unwrap_or(&text_val);
-                                    // if let Some(tag_bytes) = &current_tag {
-                                    //     if let Ok(tag_str) = std::str::from_utf8(tag_bytes) {
-                                    //         buildinginfo
-                                    //             .attribute_info_map
-                                    //             .insert(tag_str.to_string(), name.clone());
-                                    //     }
-                                    // }
                                 }
                                 uro_total += start.elapsed();
                             } else if let Some(tag_name) = &current_tag {
                                 if tag_name.as_slice() == b"gml:posList" {
                                     let start = Instant::now();
                                     let points = xml_parser::parse_points(&text_val).unwrap();
-                                    // buildinginfo
-                                    //     .stid_set
-                                    //     .extend(geometory::citygml_polygon_to_ids(20, &points));
+
                                     let start_geo = Instant::now();
                                     let ids = geometory::citygml_polygon_to_ids(25, &points);
                                     println!("  -> geometry変換時間: {:.3?}", start_geo.elapsed());
@@ -170,8 +152,11 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                             // println!("file path :  {}", file_path.display());
                             // println!("building info : {:#?}",buildinginfo );
                             println!("building count : {}", building_count);
+                            
                             //一つ一つ保存
                             // file::save_building_info_json(building_count, &buildinginfo, format!("{}_stid", file_path.display()));
+                            
+                            //最後にまとめて保存
                             storage.push(BldgStorage {
                                 count:building_count,
                                 building_info: buildinginfo.clone()
@@ -193,29 +178,9 @@ pub fn bldg_info() -> Result<Option<BuildingInfo>, Box<dyn Error>> {
                 poslist_total
             );
         }
-
-        // if file_count == 1 {
-        //     break;
-        // }
         
         file::save_building_infos_json(storage, format!("{}_stid", file_path.display())).unwrap();
     }
-    // });
-
-    // }
-
-    // let file_path: PathBuf = fs::read_dir(&base_dir)?
-    //     .filter_map(|entry| {
-    //         let entry = entry.ok()?;
-    //         let path = entry.path();
-    //         if path.extension().is_some_and(|ext| ext == "gml") {
-    //             Some(path)
-    //         } else {
-    //             None
-    //         }
-    //     })
-    //     .next()
-    //     .ok_or_else(|| format!("No .gml files found in {:?}", base_dir))?;
 
     // Ok(Some(buildinginfo))
     //複数回回すとなると、何返せばいいかわかんないので、いったん適当

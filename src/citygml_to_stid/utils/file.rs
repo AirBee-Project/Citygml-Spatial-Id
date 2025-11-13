@@ -61,30 +61,38 @@ pub fn save_building_infos_json(
     building_infos: Vec<BldgStorage>,
     export_name: String,
 ) -> Result<(), Box<dyn Error>> {
-    // println!("export_name : {}", export_name);
     let safe_name = export_name.replace('\\', "_").replace('/', "_");
-    // println!("safe_name : {}", safe_name);
     let dir_path = Path::new("stid_json");
     create_dir_all(dir_path)?;
-    
-    let file_path = dir_path.join(format!("{}.json", safe_name));
-    
-    let mut data = Value::Array([].to_vec());
 
-    for building_info in building_infos {
-    data[building_info.count.to_string()] = json!({
-        "id": building_info.building_info.building_id,
-        "stid_set": building_info.building_info.stid_set.iter().map(|stid| stid.to_string()).collect::<Vec<String>>(),
-        "attributes": building_info.building_info.attribute_info_map
-    });
-}
+       let chunk_size = 50;
+// ファイルが開けないほど重くなってしまうため、チャンクごとに分割
+    for (i, chunk) in building_infos.chunks(chunk_size).enumerate() {
+        let mut data = Value::Object(serde_json::Map::new());
 
-    let mut f = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(file_path)?;
-    f.write_all(data.to_string().as_bytes())?;
+        for building_info in chunk {
+            data[building_info.count.to_string()] = json!({
+                "id": building_info.building_info.building_id,
+                "stid_set": building_info.building_info
+                    .stid_set
+                    .iter()
+                    .map(|stid| stid.to_string())
+                    .collect::<Vec<String>>(),
+                "attributes": building_info.building_info.attribute_info_map
+            });
+        }
+
+        // ファイル名にチャンク番号を付与
+        let file_path = dir_path.join(format!("{}_part{}.json", safe_name, i + 1));
+
+        let mut f = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(file_path)?;
+        f.write_all(serde_json::to_string_pretty(&data)?.as_bytes())?;
+    }
+
 
     Ok(())
 }

@@ -1,37 +1,47 @@
 use crate::citygml_to_stid::bldg::BldgStorage;
 use crate::citygml_to_stid::models::bldg::BuildingInfo;
 
+use kasane_logic::space_time_id::SpaceTimeId;
 use serde_json::{Value, json};
-use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{File, OpenOptions, create_dir_all};
 use std::io::{Read, Write};
 use std::path::Path;
+
+/// Convert SpaceTimeId to voxel JSON object
+fn stid_to_voxel(stid: &SpaceTimeId) -> Value {
+    json!({
+        "z": stid.z,
+        "f": stid.f[0],
+        "x": stid.x[0],
+        "y": stid.y[0]
+    })
+}
 
 //まとめて保存する用
 pub fn save_building_infos_json(
     building_infos: Vec<BldgStorage>,
     export_name: String,
 ) -> Result<(), Box<dyn Error>> {
-    let safe_name = export_name.replace('\\', "_").replace('/', "_");
+    let safe_name = export_name.replace(['\\', '/'], "_");
     let dir_path = Path::new("stid_json");
     create_dir_all(dir_path)?;
 
-    let chunk_size = 50;
+    let chunk_size = 10;
     // ファイルが開けないほど重くなってしまうため、チャンクごとに分割
     for (i, chunk) in building_infos.chunks(chunk_size).enumerate() {
         let mut data = Value::Object(serde_json::Map::new());
 
         for building_info in chunk {
-            data[building_info.count.to_string()] = json!({
-                "id": building_info.building_info.building_id,
-                "stid_set": building_info.building_info
-                    .stid_set
-                    .iter()
-                    .map(|stid| stid.to_string())
-                    .collect::<Vec<String>>(),
-                "attributes": building_info.building_info.attribute_info_map
-            });
+            // Convert STID set to array of voxel objects with z, f, x, y
+            let voxels: Vec<Value> = building_info.building_info
+                .stid_set
+                .iter()
+                .map(stid_to_voxel)
+                .collect();
+
+            // Use building_id as key
+            data[&building_info.building_info.building_id] = json!(voxels);
         }
 
         // ファイル名にチャンク番号を付与
@@ -50,12 +60,12 @@ pub fn save_building_infos_json(
 
 //単体保存用
 pub fn save_building_info_json(
-    count: i32,
+    _count: i32,
     building_info: &BuildingInfo,
     export_name: String,
 ) -> Result<(), Box<dyn Error>> {
     // println!("export_name : {}", export_name);
-    let safe_name = export_name.replace('\\', "_").replace('/', "_");
+    let safe_name = export_name.replace(['\\', '/'], "_");
     // println!("safe_name : {}", safe_name);
     let dir_path = Path::new("stid_json");
     create_dir_all(dir_path)?;
@@ -83,11 +93,15 @@ pub fn save_building_info_json(
         json!({})
     };
 
-    existing[&count.to_string()] = json!({
-        "id": building_info.building_id,
-        "stid_set": building_info.stid_set.iter().map(|stid| stid.to_string()).collect::<Vec<String>>(),
-        "attributes": building_info.attribute_info_map
-    });
+    // Convert STID set to array of voxel objects with z, f, x, y
+    let voxels: Vec<Value> = building_info
+        .stid_set
+        .iter()
+        .map(stid_to_voxel)
+        .collect();
+
+    // Use building_id as key
+    existing[&building_info.building_id] = json!(voxels);
 
     let mut f = OpenOptions::new()
         .write(true)

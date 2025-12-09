@@ -6,10 +6,30 @@ pub mod city_gml_to_stid_test;
 // use crate::city_gml_to_stid_test::{citygml_polygon_to_ids, first_building_info};
 
 use crate::citygml_to_stid::bldg::bldg_info;
+use crate::citygml_to_stid::brid::brid_info;
+use crate::citygml_to_stid::dem::dem_info;
+use crate::citygml_to_stid::fld::fld_info;
+use crate::citygml_to_stid::frn::frn_info;
+use crate::citygml_to_stid::htd::htd_info;
+use crate::citygml_to_stid::lsld::lsld_info;
+use crate::citygml_to_stid::luse::luse_info;
+use crate::citygml_to_stid::tran::tran_info;
+use crate::citygml_to_stid::urf::urf_info;
+
+
+
 fn main() {
     //引数に並列で動かすスレッド数を指定
-    let _ = bldg_info(2);
-
+    // let _ = bldg_info(1);
+    // let _ = brid_info(1);
+    // let _ = dem_info(2);
+    // let _ = fld_info(1);
+    // let _ = frn_info(1);
+    // let _ = htd_info(1);
+    // let _ = lsld_info(1);
+    // let _ = luse_info(1);
+    // let _ = tran_info(1);
+    // let _ = urf_info(1);
     // // Ok(())
 
     // let a= Point {

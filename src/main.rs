@@ -1,14 +1,14 @@
 use std::fs::File;
 
-use citygml_spatial_id::theme::building::BuildingParser;
+use citygml_spatial_id::theme::building::Building;
 
 fn main() {
     let file = File::open(
-        "data/13220_higashiyamato-shi_pref_2023_citygml_2_op/udx/bldg/53394382_bldg_6697_op.gml",
+        "data/11234_yashio-shi_pref_2023_citygml_2_op/udx/bldg/53396627_bldg_6697_op.gml",
     )
     .unwrap();
 
-    let data = BuildingParser::new(file);
+    let data = BuildingPa
 
     let result: Vec<_> = data.collect();
 

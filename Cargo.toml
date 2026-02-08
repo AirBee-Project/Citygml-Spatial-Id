@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+earcutr = "0.5.0"
 kasane-logic = "0.1.2"
 quick-xml = "0.39.0"

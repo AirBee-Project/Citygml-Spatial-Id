@@ -1,7 +1,4 @@
-CityData/
-src/kasane_logic/
-stid_json/
+/data
 
 # Added by cargo
-
 /target

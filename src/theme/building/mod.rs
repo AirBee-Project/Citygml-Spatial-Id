@@ -1,4 +1,5 @@
 use std::fs::File;
+pub mod parser;
 
 pub struct Building {
     file: File,

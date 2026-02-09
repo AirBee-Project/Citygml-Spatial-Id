@@ -121,11 +121,11 @@ fn main() {
     );
     println!("Solid Check:");
     println!(
-        "  Valid Solids (Closed & Manifold): {}",
+        "閉じている建物の数: {}",
         valid_solids.load(Ordering::Relaxed)
     );
     println!(
-        "  Invalid Solids (Holes/Non-Manifold): {}",
+        "壊れている建物の数: {}",
         invalid_solids.load(Ordering::Relaxed)
     );
     println!("----------------------------------------");

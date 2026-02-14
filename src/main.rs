@@ -1,137 +1,76 @@
-use std::fs::{self, File};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-use rayon::prelude::*;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::Path;
 
 use citygml_spatial_id::theme::building::parser::BuildingParser;
-use kasane_logic::{Polygon, Solid};
-fn main() {
-    let dir = Path::new("data/13116_toshima-ku_pref_2023_citygml_2_op/udx/bldg");
+use kasane_logic::{SetOnMemory, Solid};
 
-    // OBJ出力用ディレクトリの作成
-    let output_dir = Path::new("output_obj");
-    if !output_dir.exists() {
-        fs::create_dir(output_dir).expect("failed to create output directory");
+fn main() {
+    // 1. 設定
+    let input_path =
+        "data/11234_yashio-shi_pref_2023_citygml_2_op/udx/bldg/53395655_bldg_6697_op.gml";
+    let output_path = "building_spatial_ids.txt";
+    let zoom_level: u8 = 25; // 空間IDのズームレベル（適宜変更してください）
+    let epsilon = 0.01; // 許容誤差 1cm
+    let target_count = 100; // 処理する件数
+
+    if !Path::new(input_path).exists() {
+        eprintln!("Error: File not found at {}", input_path);
     }
 
-    let files: Vec<PathBuf> = fs::read_dir(dir)
-        .expect("failed to read bldg directory")
-        .filter_map(|e| {
-            let path = e.ok()?.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("gml") {
-                Some(path)
-            } else {
-                None
-            }
-        })
-        .collect();
+    // 2. ファイルとパーサーの準備
+    let file = File::open(input_path).unwrap();
+    let parser = BuildingParser::new(file);
+    let mut writer = BufWriter::new(File::create(output_path).unwrap());
 
-    let total_files = files.len();
-    let processed_files = Arc::new(AtomicUsize::new(0));
+    println!("Starting processing: target {} buildings...", target_count);
+    println!("Output will be written to: {}", output_path);
 
-    // カウンタ
-    let total_buildings = Arc::new(AtomicUsize::new(0));
-    let total_surfaces = Arc::new(AtomicUsize::new(0));
-    let invalid_surfaces = Arc::new(AtomicUsize::new(0));
-    let valid_surfaces_buildings = Arc::new(AtomicUsize::new(0));
-    let invalid_surfaces_buildings = Arc::new(AtomicUsize::new(0));
-    let valid_solids = Arc::new(AtomicUsize::new(0));
-    let invalid_solids = Arc::new(AtomicUsize::new(0));
+    let mut set = SetOnMemory::new();
 
-    // OBJ出力数制限用カウンタ
-    let exported_count = Arc::new(AtomicUsize::new(0));
-    let max_export = 100;
+    let mut processed_count = 0;
+    let mut success_count = 0;
 
-    println!("Start verifying {} files...", total_files);
+    // 3. ループ処理 (takeで100件に制限)
+    for building in parser.take(target_count) {
+        processed_count += 1;
 
-    files.par_iter().for_each(|path| {
-        let file = File::open(path).unwrap();
-        let parser = BuildingParser::new(file);
+        // gml:id を取得
+        let gml_id = &building.gml_id;
 
-        for building in parser {
-            total_buildings.fetch_add(1, Ordering::Relaxed);
-
-            let mut building_surfaces = Vec::new();
-            let mut has_invalid_surface = false;
-
-            for points in building.surfaces {
-                total_surfaces.fetch_add(1, Ordering::Relaxed);
-                match Polygon::new(points) {
-                    Ok(surface) => building_surfaces.push(surface),
-                    Err(_) => {
-                        invalid_surfaces.fetch_add(1, Ordering::Relaxed);
-                        has_invalid_surface = true;
+        // Solid の作成（閉合性チェック含む）
+        // building.surfaces は Vec<Vec<Coordinate>>
+        match Solid::new(building.surfaces.clone(), epsilon) {
+            Ok(solid) => {
+                // 空間ID (SingleId) の生成
+                match solid.single_ids(zoom_level) {
+                    Ok(ids) => {
+                        for id in ids {
+                            unsafe { set.join_insert_unchecked(id) };
+                        }
+                    }
+                    Err(e) => {
+                        // ID生成失敗（ズームレベル範囲外など）
+                        eprintln!("[{}] ID Gen Error: {}", gml_id, e);
+                        writeln!(writer, "{}\tERROR_ID_GEN: {}", gml_id, e).unwrap();
                     }
                 }
             }
-
-            if has_invalid_surface {
-                invalid_surfaces_buildings.fetch_add(1, Ordering::Relaxed);
-                continue;
-            }
-
-            valid_surfaces_buildings.fetch_add(1, Ordering::Relaxed);
-
-            // Solid化の検証
-            match Solid::new(building_surfaces) {
-                Ok(solid) => {
-                    valid_solids.fetch_add(1, Ordering::Relaxed);
-                }
-                Err(_) => {
-                    invalid_solids.fetch_add(1, Ordering::Relaxed);
-                }
+            Err(e) => {
+                // Solid作成失敗（閉じていない、頂点不足など）
+                // エラー内容をファイルにも記録しておくと後で分析しやすい
+                eprintln!("[{}] Solid Error: {}", gml_id, e);
+                writeln!(writer, "{}\tERROR_SOLID: {}", gml_id, e).unwrap();
             }
         }
+    }
 
-        let done = processed_files.fetch_add(1, Ordering::Relaxed) + 1;
-        if done % 10 == 0 || done == total_files {
-            let percent = done as f64 / total_files as f64 * 100.0;
-            eprintln!(
-                "[PROGRESS] {}/{} files ({:.1}%)",
-                done, total_files, percent
-            );
-        }
-    });
+    let mut file = File::create("output.txt").unwrap();
+    let mut writer = BufWriter::new(file);
 
-    println!("========================================");
-    println!("VERIFICATION RESULT");
-    println!("========================================");
-    println!(
-        "Total Buildings Checked: {}",
-        total_buildings.load(Ordering::Relaxed)
-    );
-    println!("Surface Check:");
-    println!(
-        "  Total Surfaces: {}",
-        total_surfaces.load(Ordering::Relaxed)
-    );
-    println!(
-        "  Invalid Surfaces: {}",
-        invalid_surfaces.load(Ordering::Relaxed)
-    );
-    println!(
-        "  Buildings with Invalid Surfaces: {}",
-        invalid_surfaces_buildings.load(Ordering::Relaxed)
-    );
-    println!(
-        "  Buildings with All Valid Surfaces: {}",
-        valid_surfaces_buildings.load(Ordering::Relaxed)
-    );
-    println!("Solid Check:");
-    println!(
-        "閉じている建物の数: {}",
-        valid_solids.load(Ordering::Relaxed)
-    );
-    println!(
-        "壊れている建物の数: {}",
-        invalid_solids.load(Ordering::Relaxed)
-    );
-    println!("----------------------------------------");
-    println!(
-        "Exported OBJs: {} (in ./output_obj/)",
-        exported_count.load(Ordering::Relaxed)
-    );
-    println!("========================================");
+    for ele in set.range_ids() {
+        write!(writer, "{},", ele).unwrap();
+    }
+
+    writer.flush().unwrap();
 }

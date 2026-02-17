@@ -1,23 +1,27 @@
 use kasane_logic::Coordinate;
+use ordered_float::OrderedFloat;
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use std::fs::File;
 use std::io::BufReader;
 
-/// 建物の最小単位の情報
-#[derive(Debug, Clone, Default)]
-pub struct BuildingInfo {
+/// 建物の属性情報
+#[derive(Debug, Clone, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub struct BuildingAttribute {
     pub gml_id: String,
     pub uro_building_id: String,
     pub uro_city_code: String,
     pub class_code: String,
 
-    pub measured_height: Option<f64>,
+    pub measured_height: Option<OrderedFloat<f64>>,
     pub lod1_height_type: Option<i32>,
     pub uro_prefecture_code: Option<String>,
     pub usage_code: Option<i32>,
+}
 
-    /// 採用された Polygon 群（LOD2 優先、なければ LOD1）
+/// 建物の形状情報
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BuildingShape {
     pub surfaces: Vec<Vec<Coordinate>>,
 }
 
@@ -48,16 +52,18 @@ fn is_local(name: &[u8], local: &[u8]) -> bool {
     name == local || name.ends_with(local)
 }
 
-/// Building を 1 件ずつストリームで返すパーサ
+/// Building を (Attribute, Shape) のペアで返すパーサ
 pub struct BuildingParser {
     reader: Reader<BufReader<File>>,
     buf: Vec<u8>,
 
-    current_building: BuildingInfo,
+    // 解析中の属性を保持
+    current_attribute: BuildingAttribute,
+
     current_tag: TargetTag,
     current_lod: LodLevel,
 
-    /// LOD 別に一旦保持
+    /// LOD 別に形状を一時保持
     lod1_surfaces: Vec<Vec<Coordinate>>,
     lod2_surfaces: Vec<Vec<Coordinate>>,
 
@@ -74,7 +80,7 @@ impl BuildingParser {
             reader,
             buf: Vec::with_capacity(8192),
 
-            current_building: BuildingInfo::default(),
+            current_attribute: BuildingAttribute::default(),
             current_tag: TargetTag::None,
             current_lod: LodLevel::None,
 
@@ -87,11 +93,11 @@ impl BuildingParser {
     }
 
     /// bldg:Building 開始タグから gml:id を抽出
-    fn parse_building_attributes(building: &mut BuildingInfo, e: &BytesStart) {
-        for attr in e.attributes().flatten() {
-            if attr.key.as_ref().ends_with(b"id") {
-                if let Ok(val) = attr.unescape_value() {
-                    building.gml_id = val.into_owned();
+    fn parse_building_attributes(attr: &mut BuildingAttribute, e: &BytesStart) {
+        for a in e.attributes().flatten() {
+            if a.key.as_ref().ends_with(b"id") {
+                if let Ok(val) = a.unescape_value() {
+                    attr.gml_id = val.into_owned();
                 }
             }
         }
@@ -134,15 +140,17 @@ impl BuildingParser {
 }
 
 impl Iterator for BuildingParser {
-    type Item = BuildingInfo;
+    // 戻り値を Attribute と Shape のタプルに変更
+    type Item = (BuildingAttribute, BuildingShape);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.reader.read_event_into(&mut self.buf) {
                 Ok(Event::Start(e)) => match e.name().as_ref() {
                     n if is_local(n, b"Building") => {
-                        self.current_building = BuildingInfo::default();
-                        Self::parse_building_attributes(&mut self.current_building, &e);
+                        // 新しい建物の開始：属性と一時バッファをリセット
+                        self.current_attribute = BuildingAttribute::default();
+                        Self::parse_building_attributes(&mut self.current_attribute, &e);
 
                         self.lod1_surfaces.clear();
                         self.lod2_surfaces.clear();
@@ -200,25 +208,25 @@ impl Iterator for BuildingParser {
                         let s = text.as_ref();
                         match self.current_tag {
                             TargetTag::UroBuildingId => {
-                                self.current_building.uro_building_id = s.to_string();
+                                self.current_attribute.uro_building_id = s.to_string();
                             }
                             TargetTag::UroCity => {
-                                self.current_building.uro_city_code = s.to_string();
+                                self.current_attribute.uro_city_code = s.to_string();
                             }
                             TargetTag::BldgClass => {
-                                self.current_building.class_code = s.to_string();
+                                self.current_attribute.class_code = s.to_string();
                             }
                             TargetTag::MeasuredHeight => {
-                                self.current_building.measured_height = s.parse().ok();
+                                self.current_attribute.measured_height = s.parse().ok();
                             }
                             TargetTag::Lod1HeightType => {
-                                self.current_building.lod1_height_type = s.parse().ok();
+                                self.current_attribute.lod1_height_type = s.parse().ok();
                             }
                             TargetTag::UroPrefecture => {
-                                self.current_building.uro_prefecture_code = Some(s.to_string());
+                                self.current_attribute.uro_prefecture_code = Some(s.to_string());
                             }
                             TargetTag::BldgUsage => {
-                                self.current_building.usage_code = s.parse().ok();
+                                self.current_attribute.usage_code = s.parse().ok();
                             }
                             TargetTag::PosList => {
                                 self.pos_text_buf.push_str(s);
@@ -245,14 +253,20 @@ impl Iterator for BuildingParser {
                         }
 
                         n if is_local(n, b"Building") => {
-                            // LOD2 優先、なければ LOD1
-                            self.current_building.surfaces = if !self.lod2_surfaces.is_empty() {
+                            // 建物の終了タグで、属性と形状を組み合わせて返す
+
+                            // 形状の確定: LOD2 優先、なければ LOD1
+                            let surfaces = if !self.lod2_surfaces.is_empty() {
                                 std::mem::take(&mut self.lod2_surfaces)
                             } else {
                                 std::mem::take(&mut self.lod1_surfaces)
                             };
+                            let shape = BuildingShape { surfaces };
 
-                            return Some(std::mem::take(&mut self.current_building));
+                            // 属性の取り出し（次回のためにデフォルト値に入れ替え）
+                            let attribute = std::mem::take(&mut self.current_attribute);
+
+                            return Some((attribute, shape));
                         }
 
                         _ => {

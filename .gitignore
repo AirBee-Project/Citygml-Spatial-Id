@@ -2,3 +2,5 @@
 
 # Added by cargo
 /target
+output.txt
+insertion_times.csv

@@ -1,4 +1,4 @@
-use citygml_spatial_id::theme::building::xml::BuildingParser;
+use citygml_spatial_id::theme::brid::xml::BuildingParser;
 use kasane_logic::{Polygon, SetOnMemory, Solid};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::HashSet;
@@ -8,7 +8,7 @@ use std::{fs::File, io::BufWriter};
 
 fn main() {
     let target = File::open(
-        "data/13104_shinjuku-ku_pref_2023_citygml_2_op/udx/bldg/53394546_bldg_6697_op.gml",
+        "data/13113_shibuya-ku_pref_2023_citygml_2_op/udx/bldg/53393596_bldg_6697_op.gml",
     )
     .unwrap();
 
